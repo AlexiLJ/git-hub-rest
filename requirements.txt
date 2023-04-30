@@ -1,3 +1,5 @@
 fastapi
 uvicorn[standard]
 requests
+matplotlib
+import mpld3

@@ -2,40 +2,25 @@ from fastapi import FastAPI
 import time
 from datetime import datetime, timedelta
 import requests
+import plotly.graph_objs as go
+import mpld3
+from matplotlib.ticker import FixedLocator, FixedFormatter
+from fastapi.responses import HTMLResponse
 import uvicorn
+import io
+import base64
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 app = FastAPI()
-token = ''
+token = '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'
 @app.get("/github-events/{offset}")
 def get_github_events(offset: int):
-    url = "https://api.github.com/events"
-    offset_time = datetime.now() - timedelta(minutes=offset)
-    offset_str = offset_time.strftime('%Y-%m-%dT%H:%M:%SZ')
-    headers = {
-        "Accept": "application/vnd.github.v3+json",
-        "Authorization": f"Bearer {token}"
-    }
-    params = {
-        "per_page": 100,  # Increase per_page to retrieve more events per request
-        "event_type": "WatchEvent,PullRequestEvent,IssuesEvent",
-        "since": offset_str
-    }
-    events = []
-    page = 1
-    while True:
-        params["page"] = page
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code != 200:
-            break
-        page_events = response.json()
-
-        filtered_events = [event for event in page_events if event['type'] in ['WatchEvent', 'PullRequestEvent', 'IssuesEvent']]
-        events.extend(filtered_events)
-        page += 1
-
+    events = get_requested_events(offset=offset)
     avg_pulls = get_average_time_btwn_pull_req(events=events)
-
-    return [{'Requested Events': calculate_requested_events(events=events),  'Offset': offset}, avg_pulls ]
+    response = [{'Requested Events': calculate_requested_events(events=events),  'Offset': offset},
+                {'Average Time Between Pull Request': avg_pulls} ]
+    return response
 
 
 def calculate_requested_events(events: list):
@@ -83,6 +68,77 @@ def get_average_time_btwn_pull_req(events: list):
             avg_time = None
         times[event['repo']['name']] = avg_time
     return times
+
+def get_requested_events(offset: int):
+    url = "https://api.github.com/events"
+    offset_time = datetime.now() - timedelta(minutes=offset)
+    offset_str = offset_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "Authorization": f"Bearer {token}"
+    }
+    params = {
+        "per_page": 100,  # Increase per_page to retrieve more events per request
+        "event_type": "WatchEvent,PullRequestEvent,IssuesEvent",
+        "since": offset_str
+    }
+    events = []
+    page = 1
+    while True:
+        params["page"] = page
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code != 200:
+            break
+        page_events = response.json()
+
+        filtered_events = [event for event in page_events if event['type'] in ['WatchEvent', 'PullRequestEvent', 'IssuesEvent']]
+        events.extend(filtered_events)
+        page += 1
+    return events
+
+import matplotlib.pyplot as plt
+@app.get("/github-events-plot/{offset}")
+def get_github_events(offset: int):
+    events = get_requested_events(offset=offset)
+    avg_pulls = get_average_time_btwn_pull_req(events=events)
+
+    avg_pulls = {k: v for k, v in avg_pulls.items() if v} # getting rid of None
+    avg_pulls = dict(sorted(avg_pulls.items(), key=lambda x: datetime.strptime(x[1], "%H:%M:%S")))
+    fig, ax = plt.subplots()
+    ax.bar(*zip(*avg_pulls.items()))
+    ax.set_xlabel('Directory')
+    ax.set_ylabel('Average time between pull requests', fontsize=10)
+    ax.set_xticklabels(avg_pulls.keys(), rotation=45, ha='right', fontsize=5)
+    ax.set_yticklabels(avg_pulls.values(), fontsize=8)
+
+    plt.subplots_adjust(bottom=0.4, left=0.2, right=0.9, top=0.9)
+
+    # Save the plot as a PNG image
+    png_output = io.BytesIO()
+    fig.savefig(png_output, format='png', dpi=200)
+    plt.close(fig)
+    png_base64 = base64.b64encode(png_output.getvalue()).decode("ascii")
+    img_html = f'<img src="data:image/png;base64,{png_base64}"/>'
+    return HTMLResponse(content=img_html, status_code=200)
+
 if __name__ == '__main__':
+    # import matplotlib.pyplot as plt
+    #
+    # events = get_requested_events(offset=1)
+    # avg_pulls = get_average_time_btwn_pull_req(events=events)
+    #
+    # avg_pulls = {k: v for k, v in avg_pulls.items() if v} # getting rid of None
+    # avg_pulls = dict(sorted(avg_pulls.items(), key=lambda x: datetime.strptime(x[1], "%H:%M:%S")))
+    #
+    # plt.bar(*zip(*avg_pulls.items()))
+    # plt.subplots_adjust(bottom=0.3, left=0.1, right=0.9, top=0.9)
+    # plt.xlabel('Repositories')
+    # plt.ylabel('Average time between pull requests')
+    #
+    # # Rotate the x-tick labels by 45 degrees
+    # plt.xticks(rotation=45, ha='right')
+    # # img = plt.show()
+    # interactive_plot = mpld3.fig_to_html(plt)
+    # return HTMLResponse(content=interactive_plot, status_code=200)
 
     uvicorn.run(app, host="127.0.0.1", port=8000)
