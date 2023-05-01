@@ -24,3 +24,18 @@
                                                     http://127.0.0.1:8000/github-events/7 
                                                     http://127.0.0.1:8000/github-events-plot/20
     choose offset as needed.
+
+## Short assumptions description 
+get_requested_events --> retrieves required requests with "https://api.github.com/events" 
+                        for passed offset, and filters out required events
+   
+
+calculate_requested_events(events: list) --> add summered sorted events to dict
+
+
+get_average_time_btwn_pull_req --> for each event in gathered events sends req. 
+                                    "https://api.github.com/repos/{event['repo']['name']}/pulls"
+                                     calculate all time differences add it up, and calc. average time for dir.
+                                    returns dict with results for all passed events.
+      
+## Endpoints assemblet from dscribed functions + matplotlib code in the viz. endpoint
